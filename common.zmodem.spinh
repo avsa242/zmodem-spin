@@ -1,0 +1,138 @@
+{
+    --------------------------------------------
+    Filename: common.zmodem.spinh
+    Author: Jesse Burt
+    Description: ZModem constants
+    Copyright (c) 2021
+    Started Nov 19, 2017
+    Updated Jun 26, 2021
+    See end of file for terms of use.
+    --------------------------------------------
+}
+#define ZM_COMMON
+CON
+
+    ' limits
+    DATA_SP_MAXLEN  = 1024                      ' max data subpacket length/block size
+
+    ' frame encoding types
+    ZBIN            = $41
+    ZHEX            = $42
+    ZBIN32          = $43
+
+    ' frame types
+    ZRQINIT         = $00
+    ZRINIT          = $01
+    ZSINIT          = $02                       ' Send init sequence (optional)
+    ZACK            = $03                       ' ACK to above
+    ZFILE           = $04                       ' File name from sender
+    ZSKIP           = $05                       ' To sender: skip this file
+    ZNAK            = $06                       ' Last packet was garbled
+    ZABORT          = $07                       ' Abort batch transfers
+    ZFIN            = $08                       ' Finish session
+    ZRPOS           = $09                       ' Resume data trans at this position
+    ZDATA           = $0A                       ' Data packet(s) follow
+    ZEOF            = $0B                       ' End of file
+    ZFERR           = $0C                       ' Fatal Read or Write error Detected
+    ZCRC            = $0D                       ' Request for file CRC and response
+    ZCHALLENGE      = $0E                       ' Receiver's Challenge
+    ZCOMPL          = $0F                       ' Request is complete
+    ZCAN            = $10                       ' Other end canned session with CAN*5
+    ZFREECNT        = $11                       ' Request for free bytes on filesystem
+    ZCOMMAND        = $12                       ' Command from sending program
+    ZSTDERR         = $13                       ' Output to standard error, data follows
+
+    ' Data subpacket types
+    ZCRCE           = $68                       ' CRC next, frame ends, header packet follows
+    ZCRCG           = $69                       ' CRC next, frame continues nonstop
+    ZCRCQ           = $6A                       ' CRC next, frame continues, ZACK expected
+    ZCRCW           = $6B                       ' CRC next, ZACK expected, end of frame
+    ZRUB0           = $6C                       ' Translate to rubout 0177
+    ZRUB1           = $6D                       ' Translate to rubout 0377
+
+    ' zdlread return values (internal)
+    ' -1 is general error, -2 is timeout
+    GOTOR           = $100                      ' 0o400
+    GOTCRCE         = (ZCRCE|GOTOR)             ' ZDLE-ZCRCE received
+    GOTCRCG         = (ZCRCG|GOTOR)             ' ZDLE-ZCRCG received
+    GOTCRCQ         = (ZCRCQ|GOTOR)             ' ZDLE-ZCRCQ received
+    GOTCRCW         = (ZCRCW|GOTOR)             ' ZDLE-ZCRCW received
+    GOTCAN          = (GOTOR|CAN)               ' CAN*5 seen
+
+    ' Byte positions within header array
+    ZF0             = 3                         ' first flags byte
+    ZF1             = 2
+    ZF2             = 1
+    ZF3             = 0                         ' last flags byte
+    ZP0             = 0                         ' position LSB
+    ZP1             = 1
+    ZP2             = 2
+    ZP3             = 3                         ' position MSB
+
+    ' Bit Masks for ZRINIT flags byte ZF0
+    CANFDX          = $01                       ' Rx can send and receive true FDX
+    CANOVIO         = $02                       ' Rx can receive data during disk I/O
+    CANBRK          = $04                       ' Rx can send a break signal
+    CANCRY          = $08                       ' Receiver can decrypt
+    CANLZW          = $10                       ' Receiver can uncompress
+    CANFC32         = $20                       ' Receiver can use 32 bit Frame Check
+    ESCCTL          = $40                       ' Receiver expects ctl chars to be escaped
+    ESC8            = $80                       ' Receiver expects 8th bit to be escaped
+
+    ' Parameters for ZSINIT frame
+    ZATTNLEN        = 32                        ' Max length of attention string
+
+    ' Bit Masks for ZSINIT flags byte ZF0
+    TESCCTL         = $40                       ' Transmitter expects ctl chars to be escaped
+    TESC8           = $80                       ' Transmitter expects 8th bit to be escaped
+
+    ' Parameters for ZFILE frame
+    ' Conversion options one of these in ZF0
+    ZCBIN           = 1                         ' Binary transfer - inhibit conversion
+    ZCNL            = 2                         ' Convert NL to local end of line convention
+    ZCRESUM         = 3                         ' Resume interrupted file transfer
+
+    ' Management include options, one of these ored in ZF1
+    ZMSKNOLOC       = $80                       ' Skip file if not present at rx
+
+    ' Management options, one of these ored in ZF1
+    ZMMASK          = $1F                       ' Mask for the choices below
+    ZMNEWL          = 1                         ' Transfer if source newer or longer
+    ZMCRC           = 2                         ' Transfer if different file CRC or length
+    ZMAPND          = 3                         ' Append contents to existing file (if any)
+    ZMCLOB          = 4                         ' Replace existing file
+    ZMNEW           = 5                         ' Transfer if source newer
+    ZMDIFF          = 6                         ' Transfer if dates or lengths different
+    ZMPROT          = 7                         ' Protect destination file
+
+    ' Transport options, one of these in ZF2
+    ZTLZW           = 1                         ' Lempel-Ziv compression
+    ZTCRYPT         = 2                         ' Encryption
+    ZTRLE           = 3                         ' Run Length encoding
+
+    ' Extended options for ZF3, bit encoded
+    ZXSPARS         = $40                       ' Encoding for sparse file operations
+
+    ' Parameters for ZCOMMAND frame ZF0 (otherwise 0)
+    ZCACK1          = 1
+
+    ' control characters
+    NUL             = $00
+    LF              = $0A                       ' linefeed
+    CR              = $0D                       ' carriage-return
+    DLE             = $10                       ' data link escape
+    XON             = $11                       ' transmit on
+    XOFF            = $13                       ' transmit off
+    CAN             = $18                       ' cancel
+    ZDLE            = $18                       ' ZM data link escape
+    ZDLEE           = (ZDLE ^ $40)              ' ZDLE escaped
+    ZPAD            = "*"                       ' ASCII $2A
+
+    DLE80           = (DLE | $80)
+    XON80           = (XON | $80)
+    XOFF80          = (XOFF | $80)
+
+    ' Error return values
+    ERROR           = -1
+    TIMEOUT         = -2
+
