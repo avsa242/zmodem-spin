@@ -40,16 +40,30 @@ P2/SPIN2:
 * ZFILE frames: All file information besides filename and size are effectively ignored
 * Not optimized:
 
-|Link Rate	|Thruput (bytecode)	| Thruput (native)|
-|---------------|-----------------------|-----------------|
-| 19200		| 18.9kbps (RX)		| 18.9kbps (RX)   |
-|		| 16.8kbps (TX)		| 16.8kbps (TX)	  |
-|               |                       |                 |
-| 38400		| N/A (RX - fail (1))	| 37.5kbps (RX)	  |
-|		| 18.8kbps (TX)		| 32.7kbps (TX)	  |
-|               |                       |                 |
-| 115200	| N/A (RX - fail (1))	| 110.95kbps (RX) |
-|		| 18.8kbps (TX)		| 8.7kbps (TX)    |
-|---------------|-----------------------|-----------------|
-
+P1:
+|Link Rate	|Thruput (bytecode)	| Thruput (native)	|
+|---------------|-----------------------|-----------------------|
+| 19200		| 18.9kbps (RX)		| 18.9kbps (RX)   	|
+|		| 16.8kbps (TX)		| 16.8kbps (TX)	  	|
+|               |                       |                 	|
+| 38400		| N/A (RX - fail (1))	| 37.5kbps (RX)	  	|
+|		| 18.8kbps (TX)		| 32.7kbps (TX)	  	|
+|               |                       |                 	|
+| 115200	| N/A (RX - fail (1))	| 110.95kbps (RX) 	|
+|		| 18.8kbps (TX)		| 8.7kbps (TX)    	|
+|---------------|-----------------------|-----------------------|
 (1): The sender keeps streaming, regardless, and the Prop can't keep up at this speed or faster when built to bytecode, so misses frames
+
+P2:
+|Link Rate      |Thruput (bytecode)     | Thruput (native)	|
+|---------------|-----------------------|-----------------------|
+| 19200         | 00.0kbps (RX)         | 18.9kbps (RX)   	|
+|               | 00.0kbps (TX)         | 17.7kbps (TX)   	|
+|               |                       |                 	|
+| 38400         | N/A (RX - fail (1))   | 37.6kbps (RX)   	|
+|               | 18.8kbps (TX)         | 00.0kbps (TX)   	|
+|               |                       |                 	|
+| 115200        | N/A (RX - fail (1))   | N/A (RX - fail	|
+|               | 00.0kbps (TX)         | 0.0kbps (TX)    	|
+|---------------|-----------------------|-----------------------|
+

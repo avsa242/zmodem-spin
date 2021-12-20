@@ -1,0 +1,106 @@
+CON
+
+    _clkfreq    = 250_000_000
+    _xtlfreq    = 20_000_000
+
+VAR
+
+    long _rxcnt
+    long _t2us
+
+OBJ
+
+    com : "com.serial.terminal"                 ' remote device
+    ser : "com.serial.terminal.ansi"            ' debug/terminal output
+    time: "time"
+
+PUB Main() | rx, s, e, emax
+
+    _t2us := clkfreq / 1_000_000
+    ser.startrxtx(63, 62, 0, 2_000_000)
+    com.startrxtx(49, 48, 0, 38400)             ' 19200 max SPIN, 115.2k+ PASM
+    waitms(30)
+    ser.clear
+    com.strln(string("started"))
+
+    _subpsz := 1024
+    longfill(@_f_sz, 0, 6)
+
+    ser.strln(string("Waiting for transfer..."))
+    repeat until (zgethdr() == ZRQINIT)
+
+    zmtx_hexheader(ZRINIT, CANFC32 << 24)
+
+    if (getfileinfo() == ZFILE)
+        ser.printf(string("Filename: %s\n"), @_f_name)
+        ser.printf(string("Size    : %u\n"), _f_sz)
+    else
+        ser.strln(string("error: wrong frame type or bad CRC"))
+        repeat 8
+            char(CAN)
+        repeat                                  ' halt
+'    dbghex
+
+    ser.printf(string("frame type: %x\n"), zmrx_frameend())
+
+    zmtx_hexheader(ZRPOS, 0)
+
+    repeat until (zgethdr == ZDATA)
+
+    _rxcnt := 0
+    repeat
+        _crc32 := $ffff_ffff
+        bytefill(@_rxbuff, 0, 2048)
+        repeat
+            s := getct()
+            rx := zdlread
+            e := getct()-s
+            emax := emax #> e
+            if (rx == GOTCAN)
+                ser.strln(string("TRANSFER CANCELLED - HALTING"))
+                repeat
+            elseif (rx & GOTOR)
+                updcrc32(rx & $ff)
+                quit
+            else
+                _rxcnt++
+                updcrc32(rx)
+        ser.position(0, 9)
+        ser.printf(string("Received: %d / %d bytes\n"), _rxcnt, _f_sz)
+        ser.printf(string("zdlread() last call %dus, worst %dus\n"), e/_t2us, emax/_t2us)
+        if checkcrc == ERROR
+            ser.strln(string("bad subpacket CRC"))
+'            zmtx_hexheader(ZNAK, _rxcnt)        ' XXX what to do here?
+'            ser.hex(zgethdr, 8)
+    until (rx & $ff) == ZCRCE                   ' last frame received
+
+    repeat until zgethdr == ZEOF
+    zmtx_hexheader(ZRINIT, CANFC32 << 24)
+
+    repeat until zgethdr == ZFIN
+    zmtx_hexheader(ZFIN, 0)
+    repeat 2
+        repeat until charin == "O"              ' Over and Out
+
+    ser.strln(string("Transfer complete"))
+
+    repeat
+
+PUB dbghex
+
+    repeat
+'        ser.char(com.charin())
+        ser.hex(com.charin(), 2)
+        ser.char(" ")
+
+PUB Char(ch)
+
+    com.char(ch)
+
+PUB CharIn(): ch
+
+    return com.charin()
+
+#include "common.zmodem.spinh"
+#include "protocol.file-xfer.zmodem.spin2h"
+

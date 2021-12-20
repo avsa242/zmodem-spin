@@ -1,10 +1,10 @@
 {
     --------------------------------------------
-    Filename: protocol.file-xfer.zmodem.spinh
+    Filename: protocol.file-xfer.zmodem.spin2h
     Author: Jesse Burt
-    Description: ZModem file transfer protocol library
+    Description: ZModem file transfer protocol library (P2 version)
     Copyright (c) 2021
-    Started Nov 28, 2021
+    Started Dec 19, 2021
     Updated Dec 19, 2021
     See end of file for terms of use.
     --------------------------------------------
@@ -33,19 +33,19 @@ OBJ
     crc : "math.crc"
     int : "string.integer"
 
-PUB CheckCRC{}: crc_read | i
+PUB CheckCRC(): crc_read | i
 ' Read CRC32 from remote device and compare it to calculated CRC
     repeat i from 0 to 3                        ' read the CRC
-        crc_read.byte[i] := zdlread{}
+        crc_read.byte[i] := zdlread()
     !_crc32
 
     if (crc_read <> _crc32)
         return ERROR
 
-PUB GetFileInfo{}: frm_t | tmp[3], idx, rx
+PUB GetFileInfo(): frm_t | tmp[3], idx, rx
 ' Read file information subpacket
 '   Returns: ZFILE frame type on success, ERROR otherwise
-    if (zgethdr{} == ZFILE)
+    if (zgethdr() == ZFILE)
         _crc32 := $ffff_ffff                    ' init CRC
 
         bytefill(@_f_name, 0, 13)               ' extract filename
@@ -71,58 +71,58 @@ PUB GetFileInfo{}: frm_t | tmp[3], idx, rx
     else
         return ERROR                            ' wrong or bad frame type
 
-PUB ZMRX_Bin32Hdr{}: frm_t | i
+PUB ZMRX_Bin32Hdr(): frm_t | i
 ' Receive a binary header, with CRC32
 '   Returns: frame type of header received
-    frm_t := charin{}
+    frm_t := charin()
 
     _crc32 := $ffff_ffff                        ' init CRC
     updcrc32(frm_t)
 
     repeat i from 0 to 3
-        _rxflags[i] := charin{}
+        _rxflags[i] := charin()
         updcrc32(_rxflags[i])
 
-    if (checkcrc{} <> ERROR)
+    if (checkcrc() <> ERROR)
         return frm_t
     else
         return ERROR
 
-PUB ZMRX_FrameEnd{}: type | i, crc_read
+PUB ZMRX_FrameEnd(): type | i, crc_read
 ' Receive frame end
 '   Returns: frame end type
-    repeat until charin{} == ZDLE
-    type := zgetchar{}                          ' frame end type
-    if checkcrc{} <> ERROR
+    repeat until charin() == ZDLE
+    type := zgetchar()                          ' frame end type
+    if checkcrc() <> ERROR
         return type
     else
         return ERROR                            ' frame end CRC bad
 
-PUB ZMRX_HexHdr{}: frm_t | read_crc, i
+PUB ZMRX_HexHdr(): frm_t | read_crc, i
 ' Receive a HEX header
 '   Returns: frame type of header received
     _crc16 := 0                                 ' init CRC
 
-    frm_t := zm_gethex{}                        ' get frame type
+    frm_t := zm_gethex()                        ' get frame type
     updcrc16(frm_t)
-'    ser.printf1(string("RX frm type: %x\n"), frm_t)
+'    ser.printf(string("RX frm type: %x\n"), frm_t)
     repeat i from 0 to 3                        ' get pos/flags ASCII
-        _rxflags[i] := zm_gethex{}
+        _rxflags[i] := zm_gethex()
         updcrc16(_rxflags[i])
 
     read_crc := 0
-    read_crc.byte[1] := zm_gethex{}             ' get CRC16
-    read_crc.byte[0] := zm_gethex{}
-'    ser.printf2(string("read: %x   calc: %x\n"), read_crc, _crc16)
+    read_crc.byte[1] := zm_gethex()             ' get CRC16
+    read_crc.byte[0] := zm_gethex()
+'    ser.printf(string("read: %x   calc: %x\n"), read_crc, _crc16)
     if (read_crc == _crc16)
         return frm_t                            ' CRC good; return frame type
     else
         return ERROR                            ' CRC bad
 
-PUB ZM_GetHex{}: ihex | tmp
+PUB ZM_GetHex(): ihex | tmp
 ' Receive two hex digits in ASCII and return the integer equivalent
-    tmp.byte[0] := charin{}
-    tmp.byte[1] := charin{}
+    tmp.byte[0] := charin()
+    tmp.byte[1] := charin()
     tmp.byte[2] := NUL
     return int.strtobase(@tmp, 16)
 
@@ -151,7 +151,7 @@ PUB ZMTX_BinHeader(encoding, frm_t, posflag) | i, b
     else
         return ERROR
 
-PUB ZMTX_DataSubpkt(ptr_data, st, len, frameend): xfer | pos
+PUB ZMTX_DataSubpkt(ptr_data, st, len, frameend): xfer | pos, s, e
 ' Transmit data subpacket
 '   ptr_data: pointer to buffer of data to transmit
 '   st: starting position within data
@@ -163,7 +163,10 @@ PUB ZMTX_DataSubpkt(ptr_data, st, len, frameend): xfer | pos
     xfer := 0
     repeat pos from st to (st+len-1)
         updcrc32(byte[ptr_data][pos])           ' calc 'rolling' CRC
+'        s := getct()
         xfer += zmtx_enc(byte[ptr_data][pos])   ' transmit ZDLE-encoded data
+'        e := (getct()-s)
+'        ser.printf("zmtx_enc(): %dus\n", e)
     updcrc32(frameend)                          ' add frame end byte to the CRC
     !_crc32
 
@@ -173,13 +176,13 @@ PUB ZMTX_Enc(ch): xfer | ech
 ' Transmit ZDLE-encoded char
 '   Returns: number of bytes transferred
     if lookdown(ch: CR, ZDLE, DLE, XON, XOFF, DLE80, XON80, XOFF80)
-        char(ZDLE)
-        char(ch ^ $40)
+        char(ZDLE)                              ' escape next char
+        char(ch ^ $40)                          ' 
     else
-        char(ch)
+        char(ch)                                ' not a ctrl code; don't escape
     xfer++
 
-PUB ZMTX_FileInfo{} | i, tmp, b
+PUB ZMTX_FileInfo() | i, tmp, b
 ' Send file information
     _crc32 := $ffff_ffff                        ' init CRC
 
@@ -242,20 +245,20 @@ PUB ZMTX_HexHeader(frm_t, posflag) | i
     if (frm_t <> ZFIN) and (frm_t <> ZACK)      ' if not ZFIN or ZACK frame,
         char(XON)                               '   append an XON
 
-PUB zdlread{}: ch
+PUB zdlread(): ch
 ' Read a data subpacket byte
 '   NOTE: Checks for ZModem escape encoding to handle
 '       * aborted transmission (CAN)
 '       * frame end types
 '       * other escaped characters
-    ch := charin{}
+    ch := charin()
     if (ch == ZDLE)                             ' ZDLE? _could_ be CAN (same)
         repeat
-            ch := charin{}                      ' check for CAN
+            ch := charin()                      ' check for CAN
             if ch == CAN
-                ch := charin{}
+                ch := charin()
                 if ch == CAN
-                    ch := charin{}
+                    ch := charin()
                     if ch == CAN
                         return GOTCAN           ' 4xCAN recv'd: tell the caller
             case ch
@@ -274,24 +277,24 @@ PUB zdlread{}: ch
     else
         return ch                               ' wasn't escaped; just literal
 
-PUB zgetchar{}: ch
+PUB zgetchar(): ch
 ' Receive a character (unprocessed) and update the CRC
-    ch := charin{}
+    ch := charin()
     updcrc32(ch)
 
-PUB zgethdr{}: frm_t | encoding
+PUB zgethdr(): frm_t | encoding, rx
 ' Get frame header, and receive a binary or hex frame type
-    repeat until charin{} == ZPAD
-    repeat until charin{} == ZDLE
-    encoding := charin{}
+    repeat until charin() == ZPAD
+    repeat until charin() == ZDLE
+    encoding := charin()
 
     case encoding
         ZBIN:   'XXX not handled yet
             return ERROR
         ZBIN32:
-            return zmrx_bin32hdr{}
+            return zmrx_bin32hdr()
         ZHEX:
-            return zmrx_hexhdr{}
+            return zmrx_hexhdr()
         other:
             return ERROR
 
@@ -308,9 +311,9 @@ PUB zputchar(ch)
 
 PUB UpdCRC16(crcbyte)
 ' Update CRC16 with crcbyte
-    _crc16 := crc.crc16(@crcbyte, 1, _crc16, 0, crc#POLY16_XYZMODEM, false, false)
+    _crc16 := crc.crc16(@crcbyte, 1, _crc16, 0, crc.POLY16_XYZMODEM, false, false)
 
 PUB UpdCRC32(crcbyte)
 ' Update CRC32 with crcbyte
-    _crc32 := crc.crc32(@crcbyte, 1, _crc32, 0, crc#POLY32_ZMODEM, false, false)
+    _crc32 := crc.crc32(@crcbyte, 1, _crc32, 0, crc.POLY32_ZMODEM, false, false)
 
