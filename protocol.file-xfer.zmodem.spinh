@@ -3,9 +3,9 @@
     Filename: protocol.file-xfer.zmodem.spinh
     Author: Jesse Burt
     Description: ZModem file transfer protocol library
-    Copyright (c) 2021
+    Copyright (c) 2022
     Started Nov 28, 2021
-    Updated Dec 19, 2021
+    Updated Aug 5, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -31,7 +31,7 @@ VAR
 OBJ
 
     crc : "math.crc"
-    int : "string.integer"
+    str : "string"
 
 PUB CheckCRC{}: crc_read | i
 ' Read CRC32 from remote device and compare it to calculated CRC
@@ -62,7 +62,7 @@ PUB GetFileInfo{}: frm_t | tmp[3], idx, rx
             tmp.byte[idx++] := rx
         until (rx == " ")
         tmp.byte[idx] := NUL                    ' terminate string
-        _f_sz := int.strtobase(@tmp, 10)
+        _f_sz := str.atoi(@tmp)
 
         repeat                                  ' don't care about the rest
             tmp := zgetchar                     '   of the file info
@@ -124,7 +124,7 @@ PUB ZM_GetHex{}: ihex | tmp
     tmp.byte[0] := charin{}
     tmp.byte[1] := charin{}
     tmp.byte[2] := NUL
-    return int.strtobase(@tmp, 16)
+    return str.atoib(@tmp, 16)
 
 PUB ZMTX_BinHeader(encoding, frm_t, posflag) | i, b
 ' transmit a binary header
@@ -173,10 +173,10 @@ PUB ZMTX_Enc(ch): xfer | ech
 ' Transmit ZDLE-encoded char
 '   Returns: number of bytes transferred
     if lookdown(ch: CR, ZDLE, DLE, XON, XOFF, DLE80, XON80, XOFF80)
-        char(ZDLE)
-        char(ch ^ $40)
+        char(ZDLE)                              ' escape next char
+        char(ch ^ $40)                          '
     else
-        char(ch)
+        char(ch)                                ' not a ctrl code; don't escape
     xfer++
 
 PUB ZMTX_FileInfo{} | i, tmp, b
@@ -187,7 +187,7 @@ PUB ZMTX_FileInfo{} | i, tmp, b
         b := byte[@_f_name][i]
         zputchar(b)
 
-    tmp := int.dec(_f_sz)                       ' send file size
+    str.itoa(_f_sz, @tmp)                       ' send file size
     repeat i from 0 to strsize(tmp)-1
         b := byte[tmp][i]
         zputchar(b)
@@ -297,7 +297,7 @@ PUB zgethdr{}: frm_t | encoding
 
 PUB zputhex(val) | tmp
 ' Send a two-digit hex number, given integer val
-    tmp := int.hexl(val, 2)
+    tmp := str.hexs(val, 2)
     char(byte[tmp][0])
     char(byte[tmp][1])
 
@@ -313,4 +313,24 @@ PUB UpdCRC16(crcbyte)
 PUB UpdCRC32(crcbyte)
 ' Update CRC32 with crcbyte
     _crc32 := crc.crc32(@crcbyte, 1, _crc32, 0, crc#POLY32_ZMODEM, false, false)
+
+DAT
+{
+Copyright 2022 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
 

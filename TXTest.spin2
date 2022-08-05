@@ -1,13 +1,13 @@
 {
     --------------------------------------------
-    Filename: TXTest.spin
+    Filename: TXTest.spin2
     Author: Jesse Burt
     Description: ZModem transmit from Propeller test
-        Send a file 'p1rom.bin' containing the
-        Propeller's ROM to the remote device
-    Copyright (c) 2021
+        Send a file 'p2rom.bin' containing the
+        Propeller 2's ROM to the remote device
+    Copyright (c) 2022
     Started Nov 28, 2021
-    Updated Dec 19, 2021
+    Updated Aug 5, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -22,27 +22,24 @@ OBJ
     ser : "com.serial.terminal.ansi"            ' debug/terminal output
     time: "time"
 
-var _t2us
+pub main | ptr_data, st_pos, frm_end, xfer, pos
 
-pub main | ptr_data, st_pos, frm_end, xfer, pos, s, e, emax
-
-    _t2us := clkfreq/1_000_000
     ser.startrxtx(63, 62, 0, 2_000_000)
     com.startrxtx(49, 48, 0, 19_200)
     waitms(30)
     ser.clear
     _subpsz := 1024
 
-    bytemove(@_f_name, string("p1rom.bin"), 9)
-    _f_sz := 32768
-    ptr_data := $8000                           ' P1 ROM start
+    bytemove(@_f_name, @"p2rom.bin", 9)
+    _f_sz := 16384
+    ptr_data := $FC000                          ' P2 ROM start
     st_pos := 0
 
-    ser.printf(string("Filename: %s\n"), @_f_name)
-    ser.printf(string("Size    : %u\n"), _f_sz)
+    ser.printf(@"Filename: %s\n\r", @_f_name)
+    ser.printf(@"Size    : %u\n\r", _f_sz)
     zmtx_hexheader(ZRQINIT, 0)
     repeat until (zgethdr() == ZRINIT)
-        ser.strln(string("got ZRINIT"))
+        ser.strln(@"got ZRINIT")
 
     _txflags[ZF0] := 0
     _txflags[ZF1] := 0
@@ -52,7 +49,7 @@ pub main | ptr_data, st_pos, frm_end, xfer, pos, s, e, emax
     zmtx_fileinfo
 
     repeat until (zgethdr() == ZRPOS)
-        ser.strln(string("got ZRPOS"))
+        ser.strln(@"got ZRPOS")
 
     zmtx_binheader(ZBIN32, ZDATA, @st_pos)      ' start position
 
@@ -62,19 +59,15 @@ pub main | ptr_data, st_pos, frm_end, xfer, pos, s, e, emax
             frm_end := ZCRCQ                    ' Q: ACK, G: no ACK
         else
             frm_end := ZCRCE                    ' frame ends
-        s := getct()
         xfer += zmtx_datasubpkt(ptr_data, pos, _subpsz, frm_end)
-        e := getct()-s
-        emax := emax #> e
         if (frm_end == ZCRCQ)
             if zgethdr() <> ZACK
                 ser.fgcolor(ser.red)
-                ser.strln(string("error from receiver - aborting"))
+                ser.strln(@"error from receiver - aborting")
                 ser.fgcolor(ser.white)
                 repeat
         ser.position(0, 3)
-        ser.printf(string("transferred %d/%d bytes\n"), xfer, _f_sz)
-'        ser.printf(string("zmtx_datasubpkt() last call %dus, worst %dus\n"), e/180, emax/180)
+        ser.printf(@"transferred %d/%d bytes\n\r", xfer, _f_sz)
     zmtx_binheader(ZBIN32, ZEOF, @_f_sz)
 
     repeat until (zgethdr() == ZRINIT)
@@ -83,7 +76,7 @@ pub main | ptr_data, st_pos, frm_end, xfer, pos, s, e, emax
 
     repeat until (zgethdr() == ZFIN)
 
-    ser.strln(string("Transfer complete"))
+    ser.strln(@"Transfer complete")
     char("O")                                   ' over and out
     char("O")
     repeat
@@ -96,6 +89,26 @@ PUB CharIn: ch
 
     return com.charin
 
-#include "common.zmodem.spinh"
+#include "zmodem.common.spinh"
 #include "protocol.file-xfer.zmodem.spin2h"
+
+DAT
+{
+Copyright 2022 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
 
