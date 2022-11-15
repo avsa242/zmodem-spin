@@ -7,7 +7,7 @@
         Propeller's ROM to the remote device
     Copyright (c) 2022
     Started Nov 28, 2021
-    Updated Aug 5, 2022
+    Updated Nov 15, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -25,7 +25,7 @@ OBJ
 pub main | ptr_data, st_pos, frm_end, xfer, pos
 
     ser.startrxtx(31, 30, 0, 115_200)
-    com.startrxtx(23, 22, 0, 115200)
+    com.startrxtx(23, 22, 0, 115_200)
     time.msleep(30)
     ser.clear
     _subpsz := 1024
@@ -37,58 +37,58 @@ pub main | ptr_data, st_pos, frm_end, xfer, pos
 
     ser.printf1(string("Filename: %s\n\r"), @_f_name)
     ser.printf1(string("Size    : %u\n\r"), _f_sz)
-    zmtx_hexheader(ZRQINIT, 0)
-    repeat until (zgethdr{} == ZRINIT)
+    zmtx_hex_header(ZRQINIT, 0)
+    repeat until (zget_hdr{} == ZRINIT)
         ser.strln(string("got ZRINIT"))
 
     _txflags[ZF0] := 0
     _txflags[ZF1] := 0
     _txflags[ZF2] := 0
     _txflags[ZF3] := 0
-    zmtx_binheader(ZBIN32, ZFILE, @_txflags)
-    zmtx_fileinfo
+    zmtx_bin_header(ZBIN32, ZFILE, @_txflags)
+    zmtx_file_info{}
 
-    repeat until (zgethdr{} == ZRPOS)
+    repeat until (zget_hdr{} == ZRPOS)
         ser.strln(string("got ZRPOS"))
 
-    zmtx_binheader(ZBIN32, ZDATA, @st_pos)      ' start position
+    zmtx_bin_header(ZBIN32, ZDATA, @st_pos)     ' start position
 
     xfer := 0
     repeat pos from st_pos to (_f_sz-1) step _subpsz
-        if pos < (_f_sz-_subpsz)                ' before last subpacket?
+        if (pos < (_f_sz-_subpsz))              ' before last subpacket?
             frm_end := ZCRCQ                    ' Q: ACK, G: no ACK
         else
             frm_end := ZCRCE                    ' frame ends
-        xfer += zmtx_datasubpkt(ptr_data, pos, _subpsz, frm_end)
+        xfer += zmtx_data_subpkt(ptr_data, pos, _subpsz, frm_end)
         if (frm_end == ZCRCQ)
-            if zgethdr{} <> ZACK
+            if (zget_hdr{} <> ZACK)
                 ser.fgcolor(ser#red)
                 ser.strln(string("error from receiver - aborting"))
                 ser.fgcolor(ser#white)
                 repeat
-        ser.position(0, 3)
+        ser.pos_xy(0, 3)
         ser.printf2(string("transferred %d/%d bytes\n\r"), xfer, _f_sz)
  
-    zmtx_binheader(ZBIN32, ZEOF, @_f_sz)
+    zmtx_bin_header(ZBIN32, ZEOF, @_f_sz)
 
-    repeat until (zgethdr{} == ZRINIT)
+    repeat until (zget_hdr{} == ZRINIT)
 
-    zmtx_hexheader(ZFIN, 0)
+    zmtx_hex_header(ZFIN, 0)
 
-    repeat until (zgethdr{} == ZFIN)
+    repeat until (zget_hdr{} == ZFIN)
 
     ser.strln(string("Transfer complete"))
-    char("O")                                   ' over and out
-    char("O")
+    putchar("O")                                ' over and out
+    putchar("O")
     repeat
 
-PUB Char(ch)
+PUB putchar(ch)
 
-    com.char(ch)
+    com.putchar(ch)
 
-PUB CharIn: ch
+PUB getchar: ch
 
-    return com.charin
+    return com.getchar{}
 
 #include "zmodem.common.spinh"
 #include "protocol.file-xfer.zmodem.spinh"
