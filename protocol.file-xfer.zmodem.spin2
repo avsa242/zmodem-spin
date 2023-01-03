@@ -14,8 +14,8 @@
 #endif
 VAR
 
-    long _subpsz
-    long _f_sz
+    long _subpkt_sz
+    long _file_sz
     long _ptr_data
 
     long _crc32
@@ -27,7 +27,7 @@ VAR
                                                 ' plus frame end with all CRC
                                                 ' bytes escaped)
 
-    byte _f_name[13]                            ' 8.3 format, NUL
+    byte _file_nm[13]                           ' 8.3 format, NUL
 
 OBJ
 
@@ -36,12 +36,13 @@ OBJ
 
 VAR
 
-    long putchar, getchar
+    long putchar, getchar                       ' pointers to PHY char tx/rx methods
 
 PUB init(ptr_put, ptr_get)
-
+' Set pointers to PHY putchar() and getchar() methods
     putchar := ptr_put
     getchar := ptr_get
+    _subpkt_sz := 1024
 
 PUB check_crc(): crc_read | i
 ' Read CRC32 from remote device and compare it to calculated CRC
@@ -58,11 +59,11 @@ PUB get_file_info(): frm_t | tmp[3], idx, rx
     if (zget_hdr() == ZFILE)
         _crc32 := $ffff_ffff                    ' init CRC
 
-        bytefill(@_f_name, 0, 13)               ' extract filename
+        bytefill(@_file_nm, 0, 13)               ' extract filename
         idx := 0
         repeat
             rx := zgetchar{}
-            _f_name[idx++] := rx
+            _file_nm[idx++] := rx
         until (rx == NUL)
 
         longfill(@tmp, 0, 3)                    ' extract file size
@@ -72,7 +73,7 @@ PUB get_file_info(): frm_t | tmp[3], idx, rx
             tmp.byte[idx++] := rx
         until (rx == " ")
         tmp.byte[idx] := NUL                    ' terminate string
-        _f_sz := str.atoi(@tmp)
+        _file_sz := str.atoi(@tmp)
 
         repeat                                  ' don't care about the rest
             tmp := zgetchar{}                   '   of the file info
@@ -82,19 +83,21 @@ PUB get_file_info(): frm_t | tmp[3], idx, rx
         return ERROR                            ' wrong or bad frame type
 
 PUB file_name(): p_nm
-
-    return @_f_name
+' Get currently set file name
+'   Returns: pointer to string
+    return @_file_nm
 
 PUB file_size(): sz
-
-    return _f_sz
-
-PUB ptr_tx_flags(): p
-
-    return @_txflags
+' Get currently set file size
+'   Returns: integer
+    return _file_sz
 
 PUB send_file(ptr_status): status | xfer, st_pos, pos, frm_end
-
+' Send a previously set up file
+'   ptr_status: pointer to 2 longs to provide current status
+'       ptr_status[0]: total bytes transferred
+'       ptr_status[1]: ready to transfer
+    long[ptr_status][1] := 0
     zmtx_hex_header(ZRQINIT, 0)
     repeat until (zget_hdr() == ZRINIT)
 
@@ -103,7 +106,7 @@ PUB send_file(ptr_status): status | xfer, st_pos, pos, frm_end
     set_tx_flags(ZF2, 0)
     set_tx_flags(ZF3, 0)
 
-    zmtx_bin_header(ZBIN32, ZFILE, ptr_tx_flags())
+    zmtx_bin_header(ZBIN32, ZFILE, @_txflags)
     zmtx_file_info()
 
     repeat until (zget_hdr() == ZRPOS)
@@ -113,18 +116,17 @@ PUB send_file(ptr_status): status | xfer, st_pos, pos, frm_end
     xfer := 0
     long[ptr_status][0] := 0
     long[ptr_status][1] := 1
-    repeat pos from 0 to (file_size()-1) step subpkt_sz()
-        if (pos < (file_size()-subpkt_sz()))              ' before last subpacket?
+    repeat pos from 0 to (_file_sz-1) step _subpkt_sz
+        if (pos < (_file_sz-_subpkt_sz))        ' before last subpacket?
             frm_end := ZCRCQ                    ' Q: ACK, G: no ACK
         else
             frm_end := ZCRCE                    ' frame ends
-        xfer += zmtx_data_subpkt(_ptr_data, pos, subpkt_sz(), frm_end)
-        long[ptr_status][0] := xfer
+        xfer += zmtx_data_subpkt(_ptr_data, pos, _subpkt_sz, frm_end)
+        long[ptr_status][0] := xfer             ' copy total transferred to status
         if (frm_end == ZCRCQ)
             if (zget_hdr() <> ZACK)
-                return -1   ' error from receiver
-
-    zmtx_bin_header(ZBIN32, ZEOF, @_f_sz)
+                return ERROR                    ' error from receiver
+    zmtx_bin_header(ZBIN32, ZEOF, @_file_sz)
     repeat until (zget_hdr() == ZRINIT)
 
     zmtx_hex_header(ZFIN, 0)
@@ -133,30 +135,36 @@ PUB send_file(ptr_status): status | xfer, st_pos, pos, frm_end
 
     putchar("O")                                ' over and out
     putchar("O")
+    long[ptr_status][1] := 0
 
 PUB set_file_data_ptr(ptr_data)
-
+' Set location of file data to transfer
+'   ptr_data: pointer to file's data
     _ptr_data := ptr_data
 
 PUB set_file_name(ptr_str)
-
-    bytemove(@_f_name, ptr_str, strsize(ptr_str))
+' Set name of file to transfer
+'   ptr_str: pointer to string
+    bytemove(@_file_nm, ptr_str, strsize(ptr_str))
 
 PUB set_file_sz(sz)
-
-    _f_sz := sz
+' Set size of file to transfer
+    _file_sz := sz
 
 PUB set_subpkt_sz(sz)
-
-    _subpsz := sz
+' Set subpacket/frame size
+    _subpkt_sz := sz
 
 PUB set_tx_flags(zf, val)
-
+' Set transmit flags
+'   zf: flag number
+'   val: flag(s) to set
     _txflags[zf] := val
 
 PUB subpkt_sz(): sz
-
-    return _subpsz
+' Get currently set subpacket/frame size
+'   Returns: integer
+    return _subpkt_sz
 
 PUB zmrx_bin32_hdr(): frm_t | i
 ' Receive a binary header, with CRC32
@@ -270,11 +278,11 @@ PUB zmtx_file_info() | i, tmp[3], b
 ' Send file information
     _crc32 := $ffff_ffff                        ' init CRC
 
-    repeat i from 0 to strsize(@_f_name)        ' send filename
-        b := byte[@_f_name][i]
+    repeat i from 0 to strsize(@_file_nm)        ' send filename
+        b := byte[@_file_nm][i]
         zputchar(b)
 
-    str.itoa(_f_sz, @tmp)                       ' send file size
+    str.itoa(_file_sz, @tmp)                       ' send file size
     repeat i from 0 to strsize(@tmp)-1
         b := byte[@tmp][i]
         zputchar(b)

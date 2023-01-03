@@ -25,13 +25,12 @@ OBJ
 pub main | f_sz, status[2]
 
     ser.startrxtx(63, 62, 0, 2_000_000)
-    com.startrxtx(24, 25, 0, 9600)
     ser.clear()
 
-    zm.init(@com.putchar, @com.getchar)
-'    zm.init(@ser.putchar, @com.getchar)
+    com.startrxtx(24, 25, 0, 9600)              ' secondary serial connection
 
-    zm.set_subpkt_sz(512)
+    zm.init(@com.putchar, @com.getchar)         ' tell zmodem how to transmit and receive
+
     zm.set_file_sz(16384)
     zm.set_file_name(@"p2rom.bin")
     zm.set_file_data_ptr($fc000)                ' P2 ROM start
@@ -50,11 +49,11 @@ var
     long _status_stk[100]
 PUB cog_show_status(ptr_status, file_sz)
 
-    repeat until long[ptr_status][1] == 1
+    repeat until long[ptr_status][1] == 1       ' wait for zmodem to be ready
     repeat
         ser.pos_xy(0, 5)
-        ser.printf(@"Transferred %d of %d bytes", long[ptr_status], file_sz)
-    while (long[ptr_status] < file_sz)
+        ser.printf(@"Transferred %d of %d bytes\n\r", long[ptr_status][0], file_sz)
+    while (long[ptr_status][1])
     cogstop(cogid())
 
 #include "zmodem.common.spinh"
