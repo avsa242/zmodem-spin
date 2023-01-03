@@ -1,0 +1,423 @@
+{
+    --------------------------------------------
+    Filename: protocol.file-xfer.zmodem.spin2h
+    Author: Jesse Burt
+    Description: ZModem file transfer protocol library (P2 version)
+    Copyright (c) 2022
+    Started Dec 19, 2021
+    Updated Nov 15, 2022
+    See end of file for terms of use.
+    --------------------------------------------
+}
+#ifndef ZM_COMMON
+#include "zmodem.common.spinh"
+#endif
+VAR
+
+    long _subpsz
+    long _f_sz
+    long _ptr_data
+
+    long _crc32
+    word _crc16
+
+    byte _rxflags[4], _txflags[4]               ' position/flags
+    byte _rxbuff[2058]                          ' accommodate worst case size
+                                                ' (1k of entirely escaped chars
+                                                ' plus frame end with all CRC
+                                                ' bytes escaped)
+
+    byte _f_name[13]                            ' 8.3 format, NUL
+
+OBJ
+
+    crc : "math.crc"
+    str : "string"
+
+VAR
+
+    long putchar, getchar
+
+PUB init(ptr_put, ptr_get)
+
+    putchar := ptr_put
+    getchar := ptr_get
+
+PUB check_crc(): crc_read | i
+' Read CRC32 from remote device and compare it to calculated CRC
+    repeat i from 0 to 3                        ' read the CRC
+        crc_read.byte[i] := zdl_read()
+    !_crc32
+
+    if (crc_read <> _crc32)
+        return ERROR
+
+PUB get_file_info(): frm_t | tmp[3], idx, rx
+' Read file information subpacket
+'   Returns: ZFILE frame type on success, ERROR otherwise
+    if (zget_hdr() == ZFILE)
+        _crc32 := $ffff_ffff                    ' init CRC
+
+        bytefill(@_f_name, 0, 13)               ' extract filename
+        idx := 0
+        repeat
+            rx := zgetchar{}
+            _f_name[idx++] := rx
+        until (rx == NUL)
+
+        longfill(@tmp, 0, 3)                    ' extract file size
+        idx := 0
+        repeat
+            rx := zgetchar{}
+            tmp.byte[idx++] := rx
+        until (rx == " ")
+        tmp.byte[idx] := NUL                    ' terminate string
+        _f_sz := str.atoi(@tmp)
+
+        repeat                                  ' don't care about the rest
+            tmp := zgetchar{}                   '   of the file info
+        until (tmp == NUL)
+        return ZFILE
+    else
+        return ERROR                            ' wrong or bad frame type
+
+PUB file_name(): p_nm
+
+    return @_f_name
+
+PUB file_size(): sz
+
+    return _f_sz
+
+PUB ptr_tx_flags(): p
+
+    return @_txflags
+
+PUB send_file(ptr_status): status | xfer, st_pos, pos, frm_end
+
+    zmtx_hex_header(ZRQINIT, 0)
+    repeat until (zget_hdr() == ZRINIT)
+
+    set_tx_flags(ZF0, 0)
+    set_tx_flags(ZF1, 0)
+    set_tx_flags(ZF2, 0)
+    set_tx_flags(ZF3, 0)
+
+    zmtx_bin_header(ZBIN32, ZFILE, ptr_tx_flags())
+    zmtx_file_info()
+
+    repeat until (zget_hdr() == ZRPOS)
+    zmtx_bin_header(ZBIN32, ZDATA, @st_pos)     ' start position
+
+    st_pos := 0
+    xfer := 0
+    long[ptr_status][0] := 0
+    long[ptr_status][1] := 1
+    repeat pos from 0 to (file_size()-1) step subpkt_sz()
+        if (pos < (file_size()-subpkt_sz()))              ' before last subpacket?
+            frm_end := ZCRCQ                    ' Q: ACK, G: no ACK
+        else
+            frm_end := ZCRCE                    ' frame ends
+        xfer += zmtx_data_subpkt(_ptr_data, pos, subpkt_sz(), frm_end)
+        long[ptr_status][0] := xfer
+        if (frm_end == ZCRCQ)
+            if (zget_hdr() <> ZACK)
+                return -1   ' error from receiver
+
+    zmtx_bin_header(ZBIN32, ZEOF, @_f_sz)
+    repeat until (zget_hdr() == ZRINIT)
+
+    zmtx_hex_header(ZFIN, 0)
+
+    repeat until (zget_hdr() == ZFIN)
+
+    putchar("O")                                ' over and out
+    putchar("O")
+
+PUB set_file_data_ptr(ptr_data)
+
+    _ptr_data := ptr_data
+
+PUB set_file_name(ptr_str)
+
+    bytemove(@_f_name, ptr_str, strsize(ptr_str))
+
+PUB set_file_sz(sz)
+
+    _f_sz := sz
+
+PUB set_subpkt_sz(sz)
+
+    _subpsz := sz
+
+PUB set_tx_flags(zf, val)
+
+    _txflags[zf] := val
+
+PUB subpkt_sz(): sz
+
+    return _subpsz
+
+PUB zmrx_bin32_hdr(): frm_t | i
+' Receive a binary header, with CRC32
+'   Returns: frame type of header received
+    frm_t := getchar():1
+
+    _crc32 := $ffff_ffff                        ' init CRC
+    upd_crc32(frm_t)
+
+    repeat i from 0 to 3
+        _rxflags[i] := getchar():1
+        upd_crc32(_rxflags[i])
+
+    if (check_crc() <> ERROR)
+        return frm_t
+    else
+        return ERROR
+
+PUB zmrx_frame_end(): type | i, crc_read
+' Receive frame end
+'   Returns: frame end type
+    repeat until getchar():1 == ZDLE
+    type := zgetchar()                          ' frame end type
+    if (check_crc() <> ERROR)
+        return type
+    else
+        return ERROR                            ' frame end CRC bad
+
+PUB zmrx_hex_hdr(): frm_t | read_crc, i
+' Receive a HEX header
+'   Returns: frame type of header received
+    _crc16 := 0                                 ' init CRC
+
+    frm_t := zm_gethex()                        ' get frame type
+    upd_crc16(frm_t)
+'    ser.printf(string("RX frm type: %x\n"), frm_t)
+    repeat i from 0 to 3                        ' get pos/flags ASCII
+        _rxflags[i] := zm_gethex()
+        upd_crc16(_rxflags[i])
+
+    read_crc := 0
+    read_crc.byte[1] := zm_gethex()             ' get CRC16
+    read_crc.byte[0] := zm_gethex()
+'    ser.printf(string("read: %x   calc: %x\n"), read_crc, _crc16)
+    if (read_crc == _crc16)
+        return frm_t                            ' CRC good; return frame type
+    else
+        return ERROR                            ' CRC bad
+
+PUB zm_gethex(): ihex | tmp
+' Receive two hex digits in ASCII and return the integer equivalent
+    tmp.byte[0] := getchar():1
+    tmp.byte[1] := getchar():1
+    tmp.byte[2] := NUL
+    return str.atoib(@tmp, 16)
+
+PUB zmtx_bin_header(encoding, frm_t, posflag) | i, b
+' transmit a binary header
+'   encoding: ZBIN or ZBIN32
+'   frm_t: frame type
+'   posflag: 4-byte position, or flags
+    putchar(ZPAD)
+    putchar(ZDLE)
+    putchar(encoding)
+    zmtx_enc(frm_t)
+
+    _crc32 := $ffff_ffff                        ' init CRC
+    upd_crc32(frm_t)
+
+    repeat i from 0 to 3                        ' transmit position/flags
+        b := byte[posflag][i]
+        zmtx_enc(b)
+        upd_crc32(b)
+
+    !_crc32                                     ' invert CRC
+    if (encoding == ZBIN32)                     ' transmit CRC
+        repeat i from 0 to 3
+            zmtx_enc(_crc32.byte[i])
+    else
+        return ERROR
+
+PUB zmtx_data_subpkt(ptr_data, st, len, frameend): xfer | pos
+' Transmit data subpacket
+'   ptr_data: pointer to buffer of data to transmit
+'   st: starting position within data
+'   len: length of data to transmit
+'   frameend: frame end type
+'   Returns: number of bytes transferred
+    _crc32 := $ffff_ffff                        ' init CRC
+
+    xfer := 0
+    repeat pos from st to (st+len-1)
+        upd_crc32(byte[ptr_data][pos])          ' calc 'rolling' CRC
+        xfer += zmtx_enc(byte[ptr_data][pos])   ' transmit ZDLE-encoded data
+    upd_crc32(frameend)                         ' add frame end byte to the CRC
+    !_crc32
+
+    zmtx_frame_end(frameend)
+
+PUB zmtx_enc(ch): xfer | ech
+' Transmit ZDLE-encoded char
+'   Returns: number of bytes transferred
+    if (lookdown(ch: CR, ZDLE, DLE, XON, XOFF, DLE80, XON80, XOFF80))
+        putchar(ZDLE)                           ' escape next char
+        putchar(ch ^ $40)                       '
+    else
+        putchar(ch)                             ' not a ctrl code; don't escape
+    xfer++
+
+PUB zmtx_file_info() | i, tmp[3], b
+' Send file information
+    _crc32 := $ffff_ffff                        ' init CRC
+
+    repeat i from 0 to strsize(@_f_name)        ' send filename
+        b := byte[@_f_name][i]
+        zputchar(b)
+
+    str.itoa(_f_sz, @tmp)                       ' send file size
+    repeat i from 0 to strsize(@tmp)-1
+        b := byte[@tmp][i]
+        zputchar(b)
+
+    zputchar(" ")
+
+    repeat 5                                    ' send other file info as 0
+        zputchar("0")                           '   (don't care)
+        zputchar(" ")
+
+    zputchar(NUL)                               ' terminate subpacket data
+
+    upd_crc32(ZCRCW)                             ' incorp. frame end into CRC
+    !_crc32
+
+    zmtx_frame_end(ZCRCW)
+    putchar(XON)                                ' trailing XON
+
+PUB zmtx_frame_end(type) | i
+' Transmit frame end
+'   type: frame end type
+    putchar(ZDLE)
+    putchar(type)
+    repeat i from 0 to 3                        ' send the CRC
+        zmtx_enc(_crc32.byte[i])
+
+PUB zmtx_hex_header(frm_t, posflag) | i
+' Transmit a hex header
+'   type: frame type
+'   posflag: 4-byte position, or flags
+    putchar(ZPAD)
+    putchar(ZPAD)
+    putchar(ZDLE)
+    putchar(ZHEX)
+
+    zputhex(frm_t)                              ' frame type
+
+    repeat i from 0 to 3                        ' transmit pos/flag bytes
+        zputhex(posflag.byte[i])
+
+    _crc16 := 0                                 ' init CRC
+    upd_crc16(frm_t)                             ' calc CRC over frame type
+    repeat i from 0 to 3                        '   and pos/flag bytes
+        upd_crc16(posflag.byte[i])
+
+    zputhex(_crc16.byte[1])                     ' send the CRC
+    zputhex(_crc16.byte[0])
+
+    putchar(CR)                                 ' terminate header
+    putchar(LF)
+
+    if ((frm_t <> ZFIN) and (frm_t <> ZACK))    ' if not ZFIN or ZACK frame,
+        putchar(XON)                            '   append an XON
+
+PUB zdl_read(): ch
+' Read a data subpacket byte
+'   NOTE: Checks for ZModem escape encoding to handle
+'       * aborted transmission (CAN)
+'       * frame end types
+'       * other escaped characters
+    ch := getchar():1
+    if (ch == ZDLE)                             ' ZDLE? _could_ be CAN (same)
+        repeat
+            ch := getchar():1                      ' check for CAN
+            if (ch == CAN)
+                ch := getchar():1
+                if (ch == CAN)
+                    ch := getchar():1
+                    if (ch == CAN)
+                        return GOTCAN           ' 4xCAN recv'd: tell the caller
+            case ch
+                ZCRCE, ZCRCG, ZCRCQ, ZCRCW:     ' frame end
+                    return (ch | GOTOR)
+                {ZRUB0:                         ' XXX these really needed?
+                    return $7F
+                ZRUB1:
+                    return $FF
+                19, 147, 17, 145: '19=DC3, 147=SET TX ST, 17=DC1, 145=PVT USE 1
+                    next}
+                other:                          ' escaped char
+                    if ((ch & $60) == $40)
+                        return (ch ^ $40)
+            return ERROR                        ' bad escape sequence
+    else
+        return ch                               ' wasn't escaped; just literal
+
+PUB zgetchar(): ch
+' Receive a character (unprocessed) and update the CRC
+    ch := getchar():1
+    upd_crc32(ch)
+
+PUB zget_hdr(): frm_t | encoding
+' Get frame header, and receive a binary or hex frame type
+    repeat until (getchar():1 == ZPAD)
+    repeat until (getchar():1 == ZDLE)
+    encoding := getchar():1
+
+    case encoding
+        ZBIN:   'XXX not handled yet
+            return ERROR
+        ZBIN32:
+            return zmrx_bin32_hdr()
+        ZHEX:
+            return zmrx_hex_hdr()
+        other:
+            return ERROR
+
+PUB zputhex(val) | tmp
+' Send a two-digit hex number, given integer val
+    tmp := str.hexs(val, 2)
+    putchar(byte[tmp][0])
+    putchar(byte[tmp][1])
+
+PUB zputchar(ch)
+' Send a character (unprocessed) and update the CRC
+    putchar(ch)
+    upd_crc32(ch)
+
+PUB upd_crc16(crcbyte)
+' Update CRC16 with crcbyte
+    _crc16 := crc.crc16(@crcbyte, 1, _crc16, 0, crc.POLY16_XYZMODEM, false, false)
+
+PUB upd_crc32(crcbyte)
+' Update CRC32 with crcbyte
+    _crc32 := crc.crc32(@crcbyte, 1, _crc32, 0, crc.POLY32_ZMODEM, false, false)
+
+DAT
+{
+Copyright 2022 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+

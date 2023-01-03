@@ -1,0 +1,81 @@
+{
+    --------------------------------------------
+    Filename: TXTest.spin2
+    Author: Jesse Burt
+    Description: ZModem transmit from Propeller test
+        Send a file 'p2rom.bin' containing the
+        Propeller 2's ROM to the remote device
+    Copyright (c) 2022
+    Started Nov 28, 2021
+    Updated Nov 15, 2022
+    See end of file for terms of use.
+    --------------------------------------------
+}
+CON
+
+    _clkfreq = 180_000_000
+    _xtlfreq = 20_000_000
+
+OBJ
+
+    com : "com.serial.terminal"                 ' remote device
+    ser : "com.serial.terminal.ansi"            ' debug/terminal output
+    zm  : "protocol.file-xfer.zmodem"
+
+pub main | f_sz, status[2]
+
+    ser.startrxtx(63, 62, 0, 2_000_000)
+    com.startrxtx(24, 25, 0, 9600)
+    ser.clear()
+
+    zm.init(@com.putchar, @com.getchar)
+'    zm.init(@ser.putchar, @com.getchar)
+
+    zm.set_subpkt_sz(512)
+    zm.set_file_sz(16384)
+    zm.set_file_name(@"p2rom.bin")
+    zm.set_file_data_ptr($fc000)                ' P2 ROM start
+
+    ser.printf(@"Filename: %s\n\r", zm.file_name())
+    ser.printf(@"Size    : %u\n\r", zm.file_size())
+
+    cogspin(NEWCOG, cog_show_status(@status, zm.file_size()), @_status_stk)
+    zm.send_file(@status)
+    ser.strln(@"complete")
+
+    repeat
+
+var
+
+    long _status_stk[100]
+PUB cog_show_status(ptr_status, file_sz)
+
+    repeat until long[ptr_status][1] == 1
+    repeat
+        ser.pos_xy(0, 5)
+        ser.printf(@"Transferred %d of %d bytes", long[ptr_status], file_sz)
+    while (long[ptr_status] < file_sz)
+    cogstop(cogid())
+
+#include "zmodem.common.spinh"
+
+DAT
+{
+Copyright 2022 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
